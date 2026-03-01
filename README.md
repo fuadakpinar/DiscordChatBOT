@@ -59,12 +59,34 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-Create a `.env` file in the project root and add your credentials:
 
+---
+
+## First-Run Configuration (Automatic Setup)
+
+You no longer need to manually create a `.env` file.
+
+When you run the bot for the first time:
+
+```bash
+python main.py
 ```
-DISCORD_TOKEN = 'your_discord_bot_token'
-OPENAI_API_KEY = 'your_openai_api_key'
-```
+
+If no `.env` file is found, the application will automatically:
+
+- Prompt you for your `DISCORD_TOKEN`
+- Prompt you for your `OPENAI_API_KEY`
+- Generate a `.env` file locally with safe default configuration values
+
+Your secrets are stored locally and are excluded from Git via `.gitignore`.
+
+Advanced users can later modify `.env` to tune:
+
+- `OPENAI_MODEL`
+- `OPENAI_MAX_OUTPUT_TOKENS`
+- `OPENAI_TEMPERATURE`
+
+---
 
 ---
 
@@ -82,3 +104,14 @@ If configured correctly, the bot will connect to Discord and respond to messages
 
 Fuad Akpinar  
 Computer Science Student
+
+---
+
+## Recent Updates
+
+- Refactored AI layer with lazy configuration loading
+- Automatic `.env` bootstrap on first run
+- Environment-based model and token configuration
+- Discord 2000-character message chunk handling
+- Improved error handling and code readability
+- Cleaner modular structure (separated Discord and AI layers)

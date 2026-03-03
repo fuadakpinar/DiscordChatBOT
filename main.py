@@ -6,26 +6,28 @@ Discord bot entry point.
 Responsibilities:
 - Ensure a `.env` exists (first-run bootstrap)
 - Load environment variables
-- Initialize Discord client
-- Listen for messages
+- Initialize Discord bot
+- Register slash commands (/cb ...)
 - Forward user input to AI layer
 - Send AI response back to Discord
 
 Configuration (set in `.env`):
 - DISCORD_TOKEN: required
-- OPENAI_API_KEY: required (used by ai.py)
-- OPENAI_MODEL: optional
-- OPENAI_MAX_OUTPUT_TOKENS: optional
-- OPENAI_TEMPERATURE: optional
+- DISCORD_GUILD_ID: optional (recommended for fast slash-command sync during development)
+- OPENAI_*: used by ai.py
 """
 
 from __future__ import annotations
 
 import os
+import shlex
 from getpass import getpass
 from pathlib import Path
+from typing import Tuple
 
 import discord
+from discord import app_commands
+from discord.ext import commands
 from dotenv import load_dotenv
 
 from ai import ask_ai
@@ -47,10 +49,10 @@ def ensure_env_file() -> None:
     discord_token = getpass("Enter your DISCORD_TOKEN: ").strip()
     openai_key = getpass("Enter your OPENAI_API_KEY: ").strip()
 
-    # Defaults below are safe starter values; users can tune later.
     env_content = (
         "# ---- Discord ----\n"
-        f"DISCORD_TOKEN={discord_token}\n\n"
+        f"DISCORD_TOKEN={discord_token}\n"
+        "# DISCORD_GUILD_ID=\n\n"
         "# ---- OpenAI ----\n"
         f"OPENAI_API_KEY={openai_key}\n"
         "OPENAI_MODEL=gpt-5.2\n"
@@ -59,71 +61,123 @@ def ensure_env_file() -> None:
     )
 
     env_path.write_text(env_content, encoding="utf-8")
-    print("\n .env created. Restart is not required; continuing...\n")
+    print("\n.env created. Restart is not required; continuing...\n")
+
+
+def _parse_chat_flags(raw: str) -> Tuple[str, bool]:
+    """
+    Parse bash-like flags inside the chat message.
+
+    Supported:
+    - -p / --private : make the reply ephemeral (only the user sees it)
+
+    Example:
+      /cb chat --private naber
+    """
+
+    text = (raw or "").strip()
+    if not text:
+        return "", False
+
+    tokens = shlex.split(text)
+    private = False
+    remaining: list[str] = []
+
+    for token in tokens:
+        if token in ("-p", "--private"):
+            private = True
+        else:
+            remaining.append(token)
+
+    return " ".join(remaining).strip(), private
 
 
 # Load `.env` into environment variables
 ensure_env_file()
 load_dotenv()
 
-
-# ---- Discord configuration ----
 DISCORD_TOKEN = (os.getenv("DISCORD_TOKEN") or "").strip()
+DISCORD_GUILD_ID = (os.getenv("DISCORD_GUILD_ID") or "").strip()
 
+if not DISCORD_TOKEN:
+    raise RuntimeError("DISCORD_TOKEN is missing. Add it to your .env file (and keep .env in .gitignore).")
 
-# Intents control what events the bot can receive.
-# `message_content` must be enabled both here AND in the Discord Developer Portal.
+# Slash commands do not require message_content intent
 intents = discord.Intents.default()
-intents.message_content = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 
-# Create Discord client
-client = discord.Client(intents=intents)
+class CBGroup(app_commands.Group):
+    """Command namespace: /cb ..."""
+
+    def __init__(self) -> None:
+        super().__init__(name = "cb", description="ChatBOT commands")
+
+    @app_commands.command(name = "chat", description = "Chat with the bot")
+    @app_commands.describe(message = "Write your message (you can add flags like --private)")
+    async def chat(self, interaction: discord.Interaction, message: str) -> None:
+        cleaned, private = _parse_chat_flags(message)
+
+        if not cleaned:
+            await interaction.response.send_message(
+                "Kullanim / Usage: `/cb chat naber`",
+                ephemeral = True,
+            )
+            return
+
+        await interaction.response.defer(thinking = True, ephemeral=private)
+
+        # Make the user's prompt visible in the channel (unless --private / -p is used).
+        # Discord shows slash-command invocations in a compact way; echoing the prompt improves readability.
+        if not private:
+            prompt_embed = discord.Embed(description=cleaned)
+            prompt_embed.set_author(
+                name = str(interaction.user),
+                icon_url = interaction.user.display_avatar.url,
+            )
+            prompt_embed.set_footer(text = "/cb chat")
+            await interaction.followup.send(embed=prompt_embed, ephemeral=False)
+
+        try:
+            reply = ask_ai(cleaned)
+        except Exception as exc:
+            print("ERROR:", repr(exc))
+            await interaction.followup.send(
+                "Error while generating a response.",
+                ephemeral = True,
+            )
+            return
+
+        max_len = 2000
+        if not reply:
+            await interaction.followup.send("(no output)", ephemeral = private)
+            return
+
+        for i in range(0, len(reply), max_len):
+            chunk = reply[i : i + max_len]
+            await interaction.followup.send(chunk, ephemeral = private)
 
 
-@client.event
+@bot.event
 async def on_ready() -> None:
-    """Triggered once when the bot successfully connects."""
-    print(f"Logged in as {client.user}")
-
-
-@client.event
-async def on_message(message: discord.Message) -> None:
-    """Triggered whenever a new message is sent in accessible channels."""
-
-    # Do not respond to our own messages
-    if message.author == client.user:
-        return
-
-    # Normalize and validate content
-    content = (message.content or "").strip()
-    if not content:
-        return
+    assert bot.user is not None
+    print(f"Logged in as {bot.user} (id = {bot.user.id})")
 
     try:
-        # Generate AI response
-        reply = ask_ai(content)
+        if not any(cmd.name == "cb" for cmd in bot.tree.get_commands()):
+            bot.tree.add_command(CBGroup())
 
-        # Discord hard limit: 2000 characters per message
-        MAX_DISCORD_MESSAGE_LENGTH = 2000
-
-        # Send in chunks if response is too long
-        for i in range(0, len(reply), MAX_DISCORD_MESSAGE_LENGTH):
-            chunk = reply[i : i + MAX_DISCORD_MESSAGE_LENGTH]
-            await message.channel.send(chunk)
-
+        if DISCORD_GUILD_ID.isdigit():
+            guild = discord.Object(id=int(DISCORD_GUILD_ID))
+            await bot.tree.sync(guild=guild)
+            print(f"Slash commands synced to guild {DISCORD_GUILD_ID}")
+        else:
+            await bot.tree.sync()
+            print("Slash commands synced globally (may take time to appear)")
     except Exception as exc:
-        # User-facing error
-        await message.channel.send("Error while generating a response.")
-
-        # Developer log
-        print("ERROR:", repr(exc))
+        print("SLASH SYNC ERROR:", repr(exc))
 
 
 if __name__ == "__main__":
-    if not DISCORD_TOKEN:
-        raise RuntimeError(
-            "DISCORD_TOKEN is missing. Add it to your .env file (and keep .env in .gitignore)."
-        )
-
-    client.run(DISCORD_TOKEN)
+    bot.run(DISCORD_TOKEN)

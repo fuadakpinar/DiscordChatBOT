@@ -1,10 +1,8 @@
-
-
 # Discord ChatBOT
 
 This project is a personal experimental Discord bot originally created during my high school years and recently revisited and modernized as part of my software development learning journey.
 
-The bot connects a Discord server channel with OpenAI's API, allowing messages written by users in the channel to be processed by ChatGPT and answered automatically through the bot. In practice, when a user sends a message in a Discord channel where the bot is active, the message is forwarded to ChatGPT and the generated response is sent back to the same channel by the bot.
+The bot connects a Discord server with OpenAI's API using modern slash commands. Instead of responding to every message in a channel, the bot now operates through structured commands (e.g., `/cb chat`). When a user invokes a slash command, the message is forwarded to OpenAI and the generated response is sent back to Discord.
 
 While the bot is functional, it is still under active improvement and serves primarily as a learning and experimentation project.
 
@@ -12,19 +10,21 @@ While the bot is functional, it is still under active improvement and serves pri
 
 ## Current Features
 
-- Discord bot integration
+- Slash command architecture (`/cb chat`)
+- Public prompt echo with optional private mode (`--private` / `-p`)
 - AI-generated responses using OpenAI API
+- Automatic `.env` bootstrap on first run
 - Environment-based configuration for secure credentials
-- Modular project structure
+- Modular project structure (separated Discord and AI layers)
 
 ---
 
 ## Planned Improvements
 
-- Conversation memory
-- Command-based interaction
-- Rate limiting and usage control
-- Improved error handling
+- Conversation memory (user-based context)
+- `/cb help` command
+- Token usage limits and guardrails
+- Logging system
 - Deployment and hosting support
 
 ---
@@ -100,6 +100,32 @@ If configured correctly, the bot will connect to Discord and respond to messages
 
 ---
 
+## Slash Command Usage
+
+The bot now operates exclusively via slash commands.
+
+Main command namespace:
+
+```
+/cb
+```
+
+Chat with the bot:
+
+```
+/cb chat your message here
+```
+
+Private response (only visible to you):
+
+```
+/cb chat --private your message here
+```
+
+The bot will echo your prompt publicly unless `--private` (or `-p`) is used.
+
+---
+
 ## Author
 
 Fuad Akpinar  
@@ -109,9 +135,10 @@ Computer Science Student
 
 ## Recent Updates
 
-- Refactored AI layer with lazy configuration loading
+- Migrated from message-based responses to slash-command architecture
+- Introduced `/cb chat` command namespace
+- Added optional `--private` flag support
+- Public prompt echo for improved UX
 - Automatic `.env` bootstrap on first run
-- Environment-based model and token configuration
-- Discord 2000-character message chunk handling
-- Improved error handling and code readability
-- Cleaner modular structure (separated Discord and AI layers)
+- Refactored AI layer with lazy configuration loading
+- Cleaner modular architecture and improved code readability

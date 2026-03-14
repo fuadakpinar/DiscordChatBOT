@@ -19,6 +19,7 @@ Configuration (set in `.env`):
 
 from __future__ import annotations
 
+import logging
 import os
 import shlex
 from getpass import getpass
@@ -32,6 +33,9 @@ from dotenv import load_dotenv
 
 from ai import ask_ai
 
+logger = logging.getLogger("chatbot")
+logging.basicConfig(level=logging.INFO, format="[%(asctime)s] [%(levelname)-8s] %(name)s: %(message)s")
+
 
 def ensure_env_file() -> None:
     """
@@ -43,7 +47,7 @@ def ensure_env_file() -> None:
     if env_path.exists():
         return
 
-    print(".env file not found. First-time setup starting...\n")
+    logger.info(".env file not found. First-time setup starting...")
     print("Your keys will be saved locally to .env.\n")
 
     discord_token = getpass("Enter your DISCORD_TOKEN: ").strip()
@@ -61,7 +65,7 @@ def ensure_env_file() -> None:
     )
 
     env_path.write_text(env_content, encoding="utf-8")
-    print("\n.env created. Restart is not required; continuing...\n")
+    logger.info(".env created. Restart is not required; continuing...")
 
 
 def _parse_chat_flags(raw: str) -> Tuple[str, bool]:
@@ -79,7 +83,10 @@ def _parse_chat_flags(raw: str) -> Tuple[str, bool]:
     if not text:
         return "", False
 
-    tokens = shlex.split(text)
+    try:
+        tokens = shlex.split(text)
+    except ValueError:
+        return text, False
     private = False
     remaining: list[str] = []
 
@@ -121,7 +128,7 @@ class CBGroup(app_commands.Group):
 
         if not cleaned:
             await interaction.response.send_message(
-                "Kullanim / Usage: `/cb chat naber`",
+                "Usage: `/cb chat <message>`",
                 ephemeral = True,
             )
             return
@@ -141,8 +148,12 @@ class CBGroup(app_commands.Group):
 
         try:
             reply = ask_ai(cleaned)
+        except TimeoutError:
+            logger.warning("OpenAI request timed out for user %s", interaction.user)
+            await interaction.followup.send("Request timed out. Please try again.", ephemeral=True)
+            return
         except Exception as exc:
-            print("ERROR:", repr(exc))
+            logger.error("AI request failed for user %s: %s", interaction.user, repr(exc))
             await interaction.followup.send(
                 "Error while generating a response.",
                 ephemeral = True,
@@ -162,7 +173,7 @@ class CBGroup(app_commands.Group):
 @bot.event
 async def on_ready() -> None:
     assert bot.user is not None
-    print(f"Logged in as {bot.user} (id = {bot.user.id})")
+    logger.info("Logged in as %s (id = %s)", bot.user, bot.user.id)
 
     try:
         if not any(cmd.name == "cb" for cmd in bot.tree.get_commands()):
@@ -171,12 +182,12 @@ async def on_ready() -> None:
         if DISCORD_GUILD_ID.isdigit():
             guild = discord.Object(id=int(DISCORD_GUILD_ID))
             await bot.tree.sync(guild=guild)
-            print(f"Slash commands synced to guild {DISCORD_GUILD_ID}")
+            logger.info("Slash commands synced to guild %s", DISCORD_GUILD_ID)
         else:
             await bot.tree.sync()
-            print("Slash commands synced globally (may take time to appear)")
+            logger.info("Slash commands synced globally (may take time to appear)")
     except Exception as exc:
-        print("SLASH SYNC ERROR:", repr(exc))
+        logger.error("Slash command sync failed: %s", repr(exc))
 
 
 if __name__ == "__main__":

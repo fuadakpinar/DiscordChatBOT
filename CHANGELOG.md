@@ -10,8 +10,22 @@ All notable changes to this project will be documented in this file.
 - User-based conversation memory
 - `/cb help` command
 - Token usage limits and guardrails
-- Logging system
 - Deployment strategy (cloud/VPS)
+
+---
+
+## [0.3.1] - 2026-03-14
+
+### Added
+- Logging system using Python's `logging` module with timestamps and severity levels
+
+### Fixed
+- Added error handling for malformed user input in flag parsing (`shlex.split()`)
+- Specific `TimeoutError` handling for OpenAI API requests
+- Standardized usage message to English (`Usage: /cb chat <message>`)
+
+### Changed
+- Replaced all `print()` calls with structured `logger` calls
 
 ---
 
